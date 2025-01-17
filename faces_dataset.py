@@ -26,23 +26,20 @@ class FacesDataset(Dataset):
     def __getitem__(self, index) -> tuple[torch.Tensor, int]:
         """Get a sample and label from the dataset."""
         if index < len(self.real_image_names):
-            image_path = os.path.join(self.root_path, 'real', self.real_image_names[index])
-            label = 0
-        else:
-            image_path = os.path.join(self.root_path, 'fake', self.fake_image_names[index - len(self.real_image_names)])
+            image_name = self.real_image_names[index]
+            image_path = os.path.join(self.root_path, 'real', image_name)
             label = 1
-        
-        image = Image.open(image_path).convert('RGB')
-        
+        else:
+            image_name = self.fake_image_names[index - len(self.real_image_names)]
+            image_path = os.path.join(self.root_path, 'fake', image_name)
+            label = 0
+
+        image = Image.open(image_path)
         if self.transform:
             image = self.transform(image)
-        else:
-            image = torch.tensor(image, dtype=torch.float32).permute(2, 0, 1) / 255.0
-        
-        return image, label
 
+        return image, label
 
     def __len__(self):
         """Return the number of images in the dataset."""
         return len(self.real_image_names) + len(self.fake_image_names)
-
