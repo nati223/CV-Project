@@ -113,27 +113,28 @@ class Trainer:
         nof_samples = 0
         correct_labeled_samples = 0
         print_every = max(int(len(dataloader) / 10), 1)
-
-        for batch_idx, (inputs, targets) in enumerate(dataloader):
-            inputs, targets = inputs.to(device), targets.to(device)
-            
-            # Forward pass
-            outputs = self.model(inputs)
-            loss = self.criterion(outputs, targets)
-            
-            # Update statistics
-            total_loss += loss.item() * inputs.size(0)
-            nof_samples += targets.size(0)
-            _, preds = torch.max(outputs, 1)
-            correct_labeled_samples += (preds == targets).sum().item()
-            
-            avg_loss = total_loss / nof_samples
-            accuracy = 100 * correct_labeled_samples / nof_samples
-            
-            if batch_idx % print_every == 0 or batch_idx == len(dataloader) - 1:
-                print(f'Epoch [{self.epoch:03d}] | Loss: {avg_loss:.3f} | '
-                      f'Acc: {accuracy:.2f}[%] '
-                      f'({correct_labeled_samples}/{nof_samples})')
+        
+        with torch.no_grad():
+            for batch_idx, (inputs, targets) in enumerate(dataloader):
+                inputs, targets = inputs.to(device), targets.to(device)
+                
+                # Forward pass
+                outputs = self.model(inputs)
+                loss = self.criterion(outputs, targets)
+                
+                # Update statistics
+                total_loss += loss.item() * inputs.size(0)
+                nof_samples += targets.size(0)
+                _, preds = torch.max(outputs, 1)
+                correct_labeled_samples += (preds == targets).sum().item()
+                
+                avg_loss = total_loss / nof_samples
+                accuracy = 100 * correct_labeled_samples / nof_samples
+                
+                if batch_idx % print_every == 0 or batch_idx == len(dataloader) - 1:
+                    print(f'Epoch [{self.epoch:03d}] | Loss: {avg_loss:.3f} | '
+                        f'Acc: {accuracy:.2f}[%] '
+                        f'({correct_labeled_samples}/{nof_samples})')
 
         return avg_loss, accuracy
 

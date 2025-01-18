@@ -41,5 +41,15 @@ def get_xception_based_model() -> nn.Module:
     (2) Override `custom_network`'s fc attribute with the binary
     classification head stated in the exercise.
     """
-    """INSERT YOUR CODE HERE, overrun return."""
-    return SimpleNet()
+    custom_network = build_xception_backbone(pretrained=True)
+    assert custom_network.fc.in_features == 2048, "The Xception backbone should output 2048 features"
+    custom_network.fc = nn.Sequential(
+        nn.Linear(custom_network.fc.in_features, 1000),
+        nn.ReLU(),
+        nn.Linear(1000, 256),
+        nn.ReLU(),
+        nn.Linear(256, 64),
+        nn.ReLU(),
+        nn.Linear(64, 2)
+    )
+    return custom_network
