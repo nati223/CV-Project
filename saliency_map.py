@@ -37,32 +37,49 @@ def parse_args():
     return parser.parse_args()
 
 
-def compute_gradient_saliency_maps(samples: torch.tensor,
-                                   true_labels: torch.tensor,
-                                   model: nn.Module):
-    """Compute vanilla gradient saliency maps for the samples.
-
-    Recipe:
-        (1) Set requires_grad_ for the samples.
-        (2) Compute a forward pass for the samples in the model.
-        (3) Gather only the scores which corresponds to the true labels of the
-        samples.
-        (4) Compute a backward pass on these scores.
-        (5) Collect the gradients from the samples object.
-        (6) Compute the absolute value (L1) of these values.
-        (7) Pick the maximum value from channels on each pixel.
-
-    Args:
-        samples: The samples we want to compute saliency maps for. Tensor of
-        shape Bx3x256x256.
-        true_labels: The true labels of the samples. Tensor of shape (B,).
-        model: The model we want to compute the gradients for.
-    Returns:
-        saliency: vanilla gradient saliency maps. This should be a tensor of
-        shape Bx256x256 where B is the number of images in samples.
+def compute_gradient_saliency_maps(samples: torch.Tensor,
+                                   true_labels: torch.Tensor,
+                                   model: nn.Module) -> torch.Tensor:
     """
-    """INSERT YOUR CODE HERE, overrun return."""
-    return torch.rand(6, 256, 256)
+    Compute vanilla gradient saliency maps for the given samples.
+    
+    Args:
+        samples: The samples we want to compute saliency maps for. 
+                 Shape: (B, 3, 256, 256).
+        true_labels: The true labels (class indices) of the samples.
+                     Shape: (B,).
+        model: The model to use for forward and backward passes.
+    
+    Returns:
+        saliency: Vanilla gradient saliency maps. Shape: (B, 256, 256).
+    """
+    # (1) Enable gradient tracking on samples.
+    samples = samples.clone().detach().requires_grad_(True)
+
+    # (2) Forward pass through the model.
+    outputs = model(samples)  # outputs.shape: (B, num_classes, ...)
+
+    # (3) Gather only the scores corresponding to the true labels.
+    #     Assuming `outputs` is of shape (B, num_classes).
+    #     For multi-class classification with class dimension=1, do:
+    correct_scores = outputs[torch.arange(outputs.size(0)), true_labels]
+
+    # (4) Backward pass on these scores.
+    #     We create a gradient of ones for each correct score.
+    grad_mask = torch.ones_like(correct_scores)
+    correct_scores.backward(grad_mask)
+
+    # (5) Collect the gradients from the samples.
+    #     `samples.grad` holds the gradient of the scores wrt. each input pixel.
+    gradients = samples.grad  # shape: (B, 3, 256, 256)
+
+    # (6) Compute the absolute value (L1) of these gradients.
+    gradients_abs = gradients.abs()  # shape: (B, 3, 256, 256)
+
+    # (7) Pick the maximum value across the channel dimension for each pixel.
+    saliency, _ = torch.max(gradients_abs, dim=1)  # shape: (B, 256, 256)
+
+    return saliency
 
 
 def main():  # pylint: disable=R0914, R0915

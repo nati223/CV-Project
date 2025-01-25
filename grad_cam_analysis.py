@@ -36,23 +36,94 @@ def parse_args():
     return parser.parse_args()
 
 
-def get_grad_cam_visualization(test_dataset: torch.utils.data.Dataset,
-                               model: torch.nn.Module) -> tuple[np.ndarray,
-                                                                torch.tensor]:
-    """Return a tuple with the GradCAM visualization and true class label.
-
-    Args:
-        test_dataset: test dataset to choose a sample from.
-        model: the model we want to understand.
-
-    Returns:
-        (visualization, true_label): a tuple containing the visualization of
-        the conv3's response on one of the sample (256x256x3 np.ndarray) and
-        the true label of that sample (since it is an output of a DataLoader
-        of batch size 1, it's a tensor of shape (1,)).
+def get_grad_cam_visualization(test_dataset, model) -> tuple[np.ndarray, torch.Tensor]:
     """
-    """INSERT YOUR CODE HERE, overrun return."""
-    return np.random.rand(256, 256, 3), torch.randint(0, 2, (1,))
+    Returns a tuple of (Grad-CAM overlay, true label).
+
+    Grad-CAM overlay is a 256x256x3 NumPy array (uint8),
+    and the label is a torch.Tensor of shape (1,).
+    """
+
+    # 1. Sample a single image/label using DataLoader
+    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=True)
+    images, labels = next(iter(test_loader))  # images: (1,3,256,256), labels: (1,)
+
+    # 2. Hooks to capture the forward activation and backward gradient of `model.conv3`
+    activation = []
+    gradient = []
+
+    def forward_hook(module, inp, out):
+        activation.append(out)
+
+    def backward_hook(module, grad_in, grad_out):
+        gradient.append(grad_out[0])
+
+    # Register hooks on the conv3 layer
+    fwd_handle = model.conv3.register_forward_hook(forward_hook)
+    bwd_handle = model.conv3.register_full_backward_hook(backward_hook)
+
+    # Move inputs/model to same device
+    device = next(model.parameters()).device
+    images, labels = images.to(device), labels.to(device)
+
+    model.eval()
+    with torch.no_grad():
+        _ = model(images)  # forward pass to populate activation (hook)
+
+    # 3. Enable gradient on images; re-run forward & do backward to get conv3 gradients
+    images.requires_grad_()
+    activation.clear()
+    gradient.clear()
+
+    outputs = model(images)                # forward with grad
+    target_score = outputs[0, labels[0]]   # pick the score for the ground-truth label
+    target_score.backward()                # compute gradients w.r.t. conv3 features
+
+    # 4. Construct the Grad-CAM
+    conv_features = activation[-1]  # (1, C, H_feat, W_feat)
+    conv_grads = gradient[-1]       # (1, C, H_feat, W_feat)
+
+    # Channel-wise mean of gradients => weights
+    weights = conv_grads.mean(dim=(2, 3), keepdim=True)  # shape: (1, C, 1, 1)
+
+    # Weighted sum across channels
+    grad_cam = torch.sum(weights * conv_features, dim=1, keepdim=True)
+    grad_cam = torch.relu(grad_cam)  # keep only positive contributions
+
+    # Upsample to 256x256
+    grad_cam = torch.nn.functional.interpolate(
+        grad_cam,
+        size=(256, 256),
+        mode='bilinear',
+        align_corners=False
+    )
+
+    # Normalize heatmap to [0,1]
+    grad_cam = grad_cam - grad_cam.min()
+    grad_cam = grad_cam / (grad_cam.max() + 1e-8)
+    heatmap = grad_cam.squeeze().detach().cpu().numpy()  # (256,256)
+
+    # 5. Create an RGB heatmap using matplotlib
+    cmap = plt.get_cmap('jet')
+    heatmap_rgba = cmap(heatmap)          # shape: (256,256,4) in [0,1]
+    heatmap_rgb = (heatmap_rgba[..., :3] * 255).astype(np.uint8)  # drop alpha, scale to [0,255]
+
+    # Retrieve original image & normalize for visualization
+    original_img = images[0].detach().cpu().numpy()  # (3,256,256)
+    original_img = np.transpose(original_img, (1, 2, 0))  # -> (256,256,3)
+    original_img = original_img - original_img.min()
+    original_img = original_img / (original_img.max() + 1e-8)
+    original_img = (original_img * 255).astype(np.uint8)
+
+    # 6. Overlay the heatmap (simple alpha-blend)
+    alpha = 0.5
+    overlay = (alpha * original_img + (1 - alpha) * heatmap_rgb).astype(np.uint8)
+
+    # 7. Cleanup: remove hooks
+    fwd_handle.remove()
+    bwd_handle.remove()
+
+    return overlay, labels
 
 
 def main():
