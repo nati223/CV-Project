@@ -1,4 +1,5 @@
 """This is the script we will use to evaluate your model. Don't change it."""
+import torch
 from torch import nn
 from trainer import Trainer
 from bonus_model import my_bonus_model
@@ -24,7 +25,6 @@ def main() -> tuple[float, int]:
     _, test_accuracy = trainer.test()
 
     nof_parameters = get_nof_params(model)
-
     return test_accuracy, nof_parameters
 
 
